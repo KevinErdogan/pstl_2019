@@ -19,4 +19,10 @@ bool hl::Tree::isIncreasing(int val, hl::Tree tree){
 
 bool hl::Tree::isIncreasingTree(hl::Tree tree){//return true if tree has stricly increasing subTrees
 	return hl::Tree::isIncreasing(-1, tree);
+
+unsigned long long hl::Tree::HNonPlan(hl::Tree tree);
+treeVals hl::Tree::HNonPlanAux(hl::Tree tree);
+bool hl::Tree::equalsTreeVals(treeVals fg, treeVals fd);
+
+
 }
