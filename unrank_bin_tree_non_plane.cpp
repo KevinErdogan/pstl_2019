@@ -9,7 +9,9 @@
 #include <sys/times.h>
 #include <math.h>
 #include <time.h>
-#include <fstream> 
+#include <fstream>
+#include <cstdlib>
+#include <ctime>
 
 // compiler avec g++ XXX.cpp -lgmpxx -lgmp -o XXX
 
@@ -24,19 +26,30 @@ struct node
 };
 
 typedef struct tv{
-				int taille;
-				int nbNS;
-				unsigned long long PTST;
-				tv *fg;
-				tv *fd;
+	int taille;
+	int nbNS;
+	unsigned long long PTST; // produit de la taille de tous les sous arbres
+	tv *fg;
+	tv *fd;
 } treeVals;
 
+typedef struct tree{
+ tree* fg;
+ tree* fd;
+ int weight;
+ int label;
+} tree;
+
+// make the list of numbers of trees from 1 up to n
 enum_vect count(int n);
+// pretty print the vector
 string vect_str(enum_vect G);
+// generate the tree number r with size n
+node * tree_gen(int n, enum_vect G, mpz_class r);
+
 node * leaf_init();
 node * binaire(node * T, node * U);
 mpz_class rand(mpz_class min, mpz_class max);
-node * tree_gen(int n, enum_vect G, mpz_class r);
 string dot_from_tree(clock_t a, node * A);
 void store(int n, node * A, mpz_class r);
 
@@ -48,8 +61,6 @@ unsigned long long HNonPlan(node *tree);
 treeVals * HNonPlanAux(node *tree);
 bool equalsTreeVals(treeVals *fg, treeVals *fd);
 
-
-
 int main()
 {
 	int n;
@@ -58,7 +69,7 @@ int main()
 		enum_vect B = count(n);
 // 	dans B[n] : nb d'arbres à 2n+1 noeuds
 	
-		cout << vect_str(B) << "\n";
+		cout << vect_str(B) << endl;
 		mpz_class r;
 		//r = rand(0, B[n]-1);
 		for(int r=0; r<B[n]; r++)
@@ -345,3 +356,87 @@ bool equalsTreeVals(treeVals *fg, treeVals *fd){
 		}
 	}
 }
+
+
+
+void sousCalcul(tree* t, tree** M, int weight, int* label){
+   if(t == NULL)
+	return;
+   // count number
+   int count = 0;
+   for(int i=0; i< weight; i++)
+	if( M[i] != NULL)
+	  count++;
+   // random r
+   RAND_MAX = (count-1);
+   int r = std::rand();
+   // found the r-th tree* and put on his label the value of *label
+   int nb=0;
+   tree* v;
+   for(int i=0; i< weight; i++){
+	if( M[i] != NULL){
+	 if(nb==r){
+	   v = M[i];
+	   break;
+	 }
+	 else{
+	  nb++;
+	 }
+	}
+}
+   v->label = *label;
+   *label++;
+   // construct M and recursive call
+    int firstPlaceOfV = -1;
+    // supprimer v
+    for(int i=0; i < weight; i++)
+	if(M[i]==v){
+	  if(firstPlaceOfV == -1)
+	    firstPlaceOfV = i;
+	  M[i]==NULL;
+	}
+   // constuire M et appel recursive
+   if( t-> fg!= NULL & t-> fd!=NULL){
+	   for(int i=firstPlaceOfV; i < t->fg->weight; i++){
+	     M[i]=t->fg;
+		}
+	   for(int i = firstPlaceOfV+t->fg->weight; i < (firstPlaceOfV+t->fg->weight+t->fd->weight); i++){
+	     M[i]=t->fd;
+		}
+
+	   // call
+	    sousCalcul(v->fg, M, v->fg->weight, label);
+	    sousCalcul(v->fd, M, v->fd->weight, label);
+}else if(t->fg!=NULL){
+	for(int i=firstPlaceOfV; i < t->fg->weight; i++){
+	     M[i]=t->fg;
+	}
+        sousCalcul(v->fg, M, v->fg->weight, label);
+  }else{
+	for(int i = firstPlaceOfV; i < (firstPlaceOfV+t->fd->weight); i++){
+	     M[i]=t->fd;
+	}
+	sousCalcul(v->fd, M, v->fd->weight, label);
+  }
+}
+
+
+/* random labeling
+ * t : struct containing fg, fd , weight and label undefined of each node
+ */
+tree* randomLabeling(tree* t){ 
+ if(t== NULL || t->weight < 1)
+  return t;
+
+ // init
+ int* label = (int*) malloc(sizeof(int));
+ *label = 1;
+ tree** M = (tree**) malloc(sizeof(tree*)*t->weight);
+ for(int i=0; i < t->weight; i++)
+  M[i] = t;
+  std::srand(std::time(nullptr));
+ // recursive call
+ sousCalcul(t, M, t->weight, label);
+ return t;
+}
+
