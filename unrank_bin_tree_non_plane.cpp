@@ -405,18 +405,18 @@ void sousCalcul(tree* t, tree** M, int weight, int* label){
 		}
 
 	   // call
-	    sousCalcul(v->fg, M, v->fg->weight, label);
-	    sousCalcul(v->fd, M, v->fd->weight, label);
+	    sousCalcul(v->fg, M, weight, label);
+	    sousCalcul(v->fd, M, weight, label);
 }else if(t->fg!=NULL){
 	for(int i=firstPlaceOfV; i < t->fg->weight; i++){
 	     M[i]=t->fg;
 	}
-        sousCalcul(v->fg, M, v->fg->weight, label);
+        sousCalcul(v->fg, M, weight, label);
   }else{
 	for(int i = firstPlaceOfV; i < (firstPlaceOfV+t->fd->weight); i++){
 	     M[i]=t->fd;
 	}
-	sousCalcul(v->fd, M, v->fd->weight, label);
+	sousCalcul(v->fd, M, weight, label);
   }
 }
 
