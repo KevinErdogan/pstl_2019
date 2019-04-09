@@ -26,12 +26,40 @@ struct node
 };
 
 typedef struct tv{
-	int taille;
+	mpz_class taille;
 	int nbNS;
-	unsigned long long PTST; // produit de la taille de tous les sous arbres
+	mpz_class PTST; // produit de la taille de tous les sous arbres
 	tv *fg;
 	tv *fd;
 } treeVals;
+
+typedef struct tvB{
+	vector<bool> bs;
+	mpz_class taille;
+	int nbNS;
+	mpz_class PTST; 
+	tvB *fg;
+	tvB *fd;
+} treeValsBits;
+
+typedef struct iso{
+	int vec[2];
+	int nodeIsoValue;
+	mpz_class taille;
+	int nbNS;
+	mpz_class PTST;
+	unsigned int level;
+	iso *root;
+	iso *fg;
+	iso *fd;
+} treeIso;
+
+typedef struct{
+	int maxLevel;
+	int ***vecs;//vecs[level][iso.vec[0]][iso.vec[1]] = iso.nodeIsoValue
+	int *vecsSize;
+	int *maxNodeIsoValueByLevel;
+}isoVecs;
 
 typedef struct tree{
  tree* fg;
@@ -55,11 +83,30 @@ void store(int n, node * A, mpz_class r);
 
 ////////////:
 
-treeVals * tv_init(int taille, int nbNS, unsigned int PTST, treeVals *fg, treeVals *fd);
+treeVals * tv_init(mpz_class taille, int nbNS, mpz_class PTST, unsigned int level, treeIso *fg, treeIso *fd, treeIso *root);
+void freeTreeVals (treeVals *T);
 bool isLeaf(node *n);
-unsigned long long HNonPlan(node *tree);
+mpz_class HNonPlan(node *tree);
 treeVals * HNonPlanAux(node *tree);
 bool equalsTreeVals(treeVals *fg, treeVals *fd);
+mpz_class factorial(mpz_class n);
+
+//
+treeValsBits * tv_initBits(mpz_class taille, int nbNS, mpz_class PTST, treeValsBits *fg, treeValsBits *fd);
+void freeTreeValsBits (treeValsBits *T);
+mpz_class HNonPlanBits(node *tree);
+treeValsBits * HNonPlanBitsAux(node *tree);
+bool equalsTreeValsBits(treeValsBits *fg, treeValsBits *fd);
+
+//iso
+treeIso *ti_init(mpz_class taille, int nbNS, mpz_class PTST, int level, treeIso *fg, treeIso *fd, treeIso *root);
+void freeTreeIso(treeIso *ti);
+mpz_class HNonPlanIso(node *tree);
+treeIso *HNonPlanIsoAux(node *tree, node *root);
+bool equalsTreeIso(treeIso *fg, treeIso *fd);
+isoVecs *init_isoVecs();
+void resizeIsoVecs(isoVecs **ia, int levelmax);
+
 
 int main()
 {
@@ -75,17 +122,53 @@ int main()
 		for(int r=0; r<B[n]; r++)
 		{
 			node * A = tree_gen(2*n+1, B, r);
-			printf("l'arbre de taille %d a %llu etiquetages possibles\n", 2*n+1, HNonPlan(A));
+			cout << "l'arbre de taille " << 2*n+1 << " a " << HNonPlan(A) << " etiquetages possibles" << endl;
 			//store(n, A, r);
 		}
 		cout << endl;
 	}
-	/*n = 2;
+	n = 2;
 	enum_vect B = count(n);
 	mpz_class r;
 	node * A = tree_gen(2*n+1, B, r);
-	printf("l'arbre de taille %d a %llu etiquetages possibles\n", 2*n+1, HNonPlan(A));*/
+	cout << "l'arbre de taille " << 2*n+1 << " a " << HNonPlan(A) << " etiquetages possibles" << endl;
+	
+	
+	
+	
 	return 0; 
+}
+
+int main_b()//experimentation HNonPlan
+{
+	
+	//FILE *f = fopen("HNonPlanBits.time", "w");
+	
+	clock_t initial_time;
+	clock_t final_time;
+	double cpu_time=0.0;
+	int n, round;
+	for(n = 1; n < 1500; n++){
+		//cout << n << endl;
+		cpu_time = 0.0;
+		enum_vect B = count(n);
+		for(round = 0; round < 10; round++){
+			
+			mpz_class r = rand(0, B[n]-1);
+			node * A = tree_gen(2*n+1, B, r);
+		
+			initial_time = clock();
+			HNonPlanBits(A);
+			final_time = clock();
+			cpu_time += (((double)(final_time - initial_time))/CLOCKS_PER_SEC);
+			
+		}
+		cpu_time /= 10;
+		cout << "temps moyen pour n = " << 2*n+1 << " : " << cpu_time << endl;
+		//fprintf(f, "%d %.6f\n", 2*n+1, cpu_time);
+	}
+	
+	//fclose(f);
 }
 
 
@@ -301,7 +384,9 @@ void store(int n, node * A, mpz_class r)
 
 /////////////////////////////////////////////////
 
-treeVals * tv_init(int taille, int nbNS, unsigned int PTST, treeVals *fg, treeVals *fd)
+//Version 1//
+
+treeVals * tv_init(mpz_class taille, int nbNS, mpz_class PTST, treeVals *fg, treeVals *fd)
 {
 	treeVals * tv;
 	tv = new treeVals;
@@ -313,18 +398,26 @@ treeVals * tv_init(int taille, int nbNS, unsigned int PTST, treeVals *fg, treeVa
 	return tv;
 }
 
+void freeTreeVals (treeVals *T){
+	if(T->fg !=NULL){
+		freeTreeVals(T->fg);
+		freeTreeVals(T->fd);
+	}
+	delete T;
+}
+
 bool isLeaf(node *n){
 	return (n->fg == NULL && n->fd == NULL);
 }
 
-unsigned long long HNonPlan(node *tree){
+mpz_class HNonPlan(node *tree){
 	treeVals *rootTV = HNonPlanAux(tree);
-	unsigned long long fact = 1;
-	for(int i = 1; i <= rootTV->taille; i++){
-		fact *= i;
-	}
-	//printf("taille = %d, fact = %llu, PTST = %llu, nbNS = %d\n", rootTV->taille, fact, rootTV->PTST, rootTV->nbNS);
-	return fact / rootTV->PTST / (int) pow(2, rootTV->nbNS);
+	mpz_class fact = factorial(rootTV->taille);
+	int powNS = (int) pow(2, rootTV->nbNS);
+	mpz_class powMPZ(powNS);
+	mpz_class PTST = rootTV->PTST;
+	freeTreeVals(rootTV);
+	return fact / PTST / powMPZ;
 }
 
 treeVals *HNonPlanAux(node *tree){
@@ -339,7 +432,7 @@ treeVals *HNonPlanAux(node *tree){
 		}else{
 			nbNS = fg->nbNS + fd->nbNS;
 		}
-		int taille = fg->taille + fd->taille + 1;
+		mpz_class taille = fg->taille + fd->taille + 1;
 		return tv_init(taille, nbNS, fg->PTST * fd->PTST * taille, fg, fd);
 	}
 }
@@ -356,9 +449,192 @@ bool equalsTreeVals(treeVals *fg, treeVals *fd){
 		}
 	}
 }
+////
 
+//Version 2 avec sequence de bits//
 
+treeValsBits * tv_initBits(mpz_class taille, int nbNS, mpz_class PTST, treeValsBits *fg, treeValsBits *fd)
+{
+	treeValsBits * tv;
+	tv = new treeValsBits;
+	tv->taille = taille;
+	tv->nbNS = nbNS;
+	tv->PTST = PTST;
+	tv->fg = fg;
+	tv->fd = fd;
+	if(taille == 1){
+		tv->bs.emplace_back(0);
+		tv->bs.emplace_back(1);
+	}else{
+		tv->bs.emplace_back(0);
+		tv->bs.insert(tv->bs.end(), tv->fg->bs.begin(), tv->fg->bs.end());
+		tv->bs.emplace_back(0);
+		tv->bs.insert(tv->bs.end(), tv->fd->bs.begin(), tv->fd->bs.end());
+		tv->bs.emplace_back(1);
+	}
+	return tv;
+}
 
+void freeTreeValsBits (treeValsBits *T){
+	if(T->fg !=NULL){
+		freeTreeValsBits(T->fg);
+		freeTreeValsBits(T->fd);
+	}
+	delete T;
+}
+
+mpz_class HNonPlanBits(node *tree){
+	treeValsBits *rootTV = HNonPlanBitsAux(tree);
+	mpz_class fact = factorial(rootTV->taille);
+	int powNS = (int) pow(2, rootTV->nbNS);
+	mpz_class powMPZ(powNS);
+	mpz_class PTST = rootTV->PTST;
+	freeTreeValsBits(rootTV);
+	return fact / PTST / powMPZ;
+}
+
+treeValsBits *HNonPlanBitsAux(node *tree){
+	if(isLeaf(tree)){
+		return tv_initBits(1, 0, 1, NULL, NULL);
+	}else{
+		treeValsBits *fg = HNonPlanBitsAux(tree->fg);
+		treeValsBits *fd = HNonPlanBitsAux(tree->fd);
+		int nbNS;
+		if(equalsTreeValsBits(fg, fd)){
+			nbNS = fg->nbNS + fd->nbNS + 1;
+		}else{
+			nbNS = fg->nbNS + fd->nbNS;
+		}
+		mpz_class taille = fg->taille + fd->taille + 1;
+		return tv_initBits(taille, nbNS, fg->PTST * fd->PTST * taille, fg, fd);
+	}
+}
+
+bool equalsTreeValsBits(treeValsBits *fg, treeValsBits *fd){
+	if(fg->taille != fd->taille){
+		return false;
+	}else{
+		if(fg->taille == 1){
+			return true;
+		}else{
+			return fg->bs == fd->bs;//on test seulement l'égalité entre les deux séquences de bits
+		}
+	}
+}
+
+////
+
+mpz_class factorial(mpz_class n)
+{
+	if(n <= 0) return 1;
+	mpz_class res(n);
+    while(n-- > 1) res *= n;
+    return res;
+}
+
+//iso
+/*
+isoVecs *init_isoVecs(){
+	isoVecs *v = new isoVecs;
+	v->maxLevel = 0;
+	return v;
+}
+
+void resizeIsoVecs(isoVecs **ia, int levelmax){
+	int previousMax = ia->maxLevel;
+	if(previousMax == 0){
+		ia->vecs = (int ***)malloc(sizeof(int**)*levelmax);
+		ia->vecsSize = (int *)malloc(sizeof(int)*levelmax);
+		ia->maxNodeIsoValueByLevel = (int *)malloc(sizeof(int)*levelmax);
+		
+		int i;
+		for(i = 0; i <= levelmax; i++){
+			ia->vecsSize[i] = 0;
+			ia->maxNodeIsoValueByLevel[i] = 0;
+		}
+		ia->maxLevel = levelmax;
+		
+	}else if(previousMax < levelmax){
+		ia->vecs = (int ***)realloc(ia->vecs, sizeof(int **)*levelmax);
+		ia->vecsSize = (int *)realloc(ia->vecsSize, sizeof(int)*levelmax);
+		ia->maxNodeIsoValueByLevel = (int *)realloc(ia->maxNodeIsoValueByLevel, sizeof(int)*levelmax);
+		
+		int i;
+		for(i = previousMax+1; i <= levelmax; i++){
+			ia->vecsSize[i] = 0;
+			ia->maxNodeIsoValueByLevel[i] = 0;
+		}
+		ia->maxLevel = levelmax;
+	}
+}
+
+treeIso *ti_init(mpz_class taille, int nbNS, mpz_class PTST, unsigned int level, treeIso *fg, treeIso *fd, treeIso *root){
+	treeIso * t;
+	t = new treeIso;
+	t->taille = taille;
+	t->nbNS = nbNS;
+	t->PTST = PTST;
+	t->root = root;
+	t->fg = fg;
+	t->fd = fd;
+	t->level = level;
+	return t;
+}
+
+void freeTreeIso(treeIso *T){
+	if(T->fg !=NULL){
+		freeTreeValsBits(T->fg);
+		freeTreeValsBits(T->fd);
+	}
+	delete T;
+}
+
+mpz_class HNonPlanIso(node *tree){
+	treeIso *rootTV = HNonPlanIsoAux(tree, NULL, 1);
+	mpz_class fact = factorial(rootTV->taille);
+	int powNS = (int) pow(2, rootTV->nbNS);
+	mpz_class powMPZ(powNS);
+	mpz_class PTST = rootTV->PTST;
+	freeTreeIso(rootTV);
+	return fact / PTST / powMPZ;
+}
+
+treeIso *HNonPlanIsoAux(node *tree, node *root, unsigned int level){
+	if(isLeaf(tree)){
+		treeIso *leaf = ti_init(1, 0, 1, level, NULL, NULL, root);
+		leaf->nodeIsoValue = 0;
+		return leaf;
+	}else{
+		treeIso *fg = HNonPlanIsoAux(tree->fg, tree, level+1);
+		treeIso *fd = HNonPlanIsoAux(tree->fd, tree, level+1);
+		mpz_class taille = fg->taille + fd->taille +1;
+		mpz_class PTST = fg->PTST * fd->PTST * taille;
+		//int isoV = getNodeIsoValue(isoVecs, fg->nodeIsoValue, fd->nodeIsoValue);
+		int nbNS;
+		if(equalsTreeIso(fg, fd)){
+			nbNS = fg->nbNS + fd->nbNS + 1;
+		}else{
+			nbNS = fg->nbNS + fd->nbNS;
+		}
+		//TODO
+		//treeIso n = ti_init(taille, nbNS, PTST, level, fg, fd, root);
+		//n->nodeIsoValue = isoV; 
+	}
+}
+
+bool equalsTreeIso(treeIso *fg, treeIso *fd){
+	return fg->nodeIsoValue == fd->nodeIsoValue;
+}
+
+int getNodeIsoValue(isoVecs **iv, int level, int vfg, int vfd){
+
+	
+	
+}
+*/
+///
+
+//generation aleatoire uniforme
 void sousCalcul(tree* t, tree** M, int weight, int* label){
    if(t == NULL)
 	return;
@@ -368,7 +644,7 @@ void sousCalcul(tree* t, tree** M, int weight, int* label){
 	if( M[i] != NULL)
 	  count++;
    // random r
-   RAND_MAX = (count-1);
+   //RAND_MAX = (count-1);
    int r = std::rand();
    // found the r-th tree* and put on his label the value of *label
    int nb=0;
@@ -437,6 +713,21 @@ tree* randomLabeling(tree* t){
   std::srand(std::time(nullptr));
  // recursive call
  sousCalcul(t, M, t->weight, label);
+ free(M);
+ free(label);
  return t;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
