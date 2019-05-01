@@ -12,8 +12,10 @@
 #include <fstream>
 #include <cstdlib>
 #include <ctime>
-
-// compiler avec g++ XXX.cpp -lgmpxx -lgmp -o XXX
+#include <map>
+#include <time.h>
+#include <sys/time.h>
+// compiler avec g++ unrank_bin_tree_non_plane.cpp -lgmpxx -lgmp -o btree
 
 using namespace std;
 
@@ -43,23 +45,26 @@ typedef struct tvB{
 } treeValsBits;
 
 typedef struct iso{
-	int vec[2];
+	int label;//utilise pour la generation aleatoire
+	vector<int> vec;
 	int nodeIsoValue;
 	mpz_class taille;
 	int nbNS;
 	mpz_class PTST;
-	unsigned int level;
-	iso *root;
+	int level;
+	iso *pere;
 	iso *fg;
 	iso *fd;
 } treeIso;
 
+/*typedef struct{
+	map<vector<int>, int> m;
+}myMap;*/
+
 typedef struct{
 	int maxLevel;
-	int ***vecs;//vecs[level][iso.vec[0]][iso.vec[1]] = iso.nodeIsoValue
-	int *vecsSize;
-	int *maxNodeIsoValueByLevel;
-}isoVecs;
+	vector<map<vector<int>, int>> maps;
+}isoMaps;
 
 typedef struct tree{
  tree* fg;
@@ -83,7 +88,7 @@ void store(int n, node * A, mpz_class r);
 
 ////////////:
 
-treeVals * tv_init(mpz_class taille, int nbNS, mpz_class PTST, unsigned int level, treeIso *fg, treeIso *fd, treeIso *root);
+treeVals * tv_init(mpz_class taille, int nbNS, mpz_class PTST, treeVals *fg, treeVals *fd);
 void freeTreeVals (treeVals *T);
 bool isLeaf(node *n);
 mpz_class HNonPlan(node *tree);
@@ -91,24 +96,27 @@ treeVals * HNonPlanAux(node *tree);
 bool equalsTreeVals(treeVals *fg, treeVals *fd);
 mpz_class factorial(mpz_class n);
 
-//
-treeValsBits * tv_initBits(mpz_class taille, int nbNS, mpz_class PTST, treeValsBits *fg, treeValsBits *fd);
-void freeTreeValsBits (treeValsBits *T);
-mpz_class HNonPlanBits(node *tree);
-treeValsBits * HNonPlanBitsAux(node *tree);
-bool equalsTreeValsBits(treeValsBits *fg, treeValsBits *fd);
 
 //iso
-treeIso *ti_init(mpz_class taille, int nbNS, mpz_class PTST, int level, treeIso *fg, treeIso *fd, treeIso *root);
+treeIso *ti_init(mpz_class taille, int nbNS, mpz_class PTST, int level, treeIso *fg, treeIso *fd);
 void freeTreeIso(treeIso *ti);
 mpz_class HNonPlanIso(node *tree);
-treeIso *HNonPlanIsoAux(node *tree, node *root);
+treeIso *HNonPlanIsoAux(node *tree, isoMaps **m, int level);
 bool equalsTreeIso(treeIso *fg, treeIso *fd);
-isoVecs *init_isoVecs();
-void resizeIsoVecs(isoVecs **ia, int levelmax);
+isoMaps *init_isoMaps();
+void resizeisoMaps(isoMaps **m , int levelmax);
+int getNodeValueFromMaps(isoMaps **m, int level, vector<int> v);
+void free_isoMaps(isoMaps *m);
 
+//generation aleatoire uniforme
+treeIso* genAleaAvecNS(node *tree);
+void sousCalculAvecNS(treeIso** t, treeIso*** M, int taille, int* label);
+string dot_from_treeIso(clock_t a, treeIso * A);
+void storeLabeledIso(int n, treeIso * A, mpz_class m);//A doit etre etiquete
+void mkCanonique(treeIso ** t);
+bool sameCanonique(treeIso *t1, treeIso *t2);
 
-int main()
+int main_a()
 {
 	int n;
 	for(n=0; n<8; n++)
@@ -122,7 +130,7 @@ int main()
 		for(int r=0; r<B[n]; r++)
 		{
 			node * A = tree_gen(2*n+1, B, r);
-			cout << "l'arbre de taille " << 2*n+1 << " a " << HNonPlan(A) << " etiquetages possibles" << endl;
+			cout << "l'arbre de taille " << 2*n+1 << " a " << HNonPlanIso(A) << " etiquetages possibles ISO" << endl;
 			//store(n, A, r);
 		}
 		cout << endl;
@@ -131,10 +139,7 @@ int main()
 	enum_vect B = count(n);
 	mpz_class r;
 	node * A = tree_gen(2*n+1, B, r);
-	cout << "l'arbre de taille " << 2*n+1 << " a " << HNonPlan(A) << " etiquetages possibles" << endl;
-	
-	
-	
+	cout << "l'arbre de taille " << 2*n+1 << " a " << HNonPlanIso(A) << " etiquetages possibles" << endl;
 	
 	return 0; 
 }
@@ -142,35 +147,106 @@ int main()
 int main_b()//experimentation HNonPlan
 {
 	
-	//FILE *f = fopen("HNonPlanBits.time", "w");
+	FILE *f;
+	FILE *fiso;
 	
 	clock_t initial_time;
 	clock_t final_time;
 	double cpu_time=0.0;
+	double cpu_time_Iso=0.0;
 	int n, round;
-	for(n = 1; n < 1500; n++){
+	for(n = 10000; n <= 10010; n++){
 		//cout << n << endl;
 		cpu_time = 0.0;
+		cpu_time_Iso=0.0;
+		initial_time = clock();
 		enum_vect B = count(n);
+		final_time = clock();
+		cpu_time += (((double)(final_time - initial_time))/CLOCKS_PER_SEC);
+		cout << "enum last for " << cpu_time << " secondes" << endl;
 		for(round = 0; round < 10; round++){
 			
 			mpz_class r = rand(0, B[n]-1);
+			initial_time = clock();
 			node * A = tree_gen(2*n+1, B, r);
+			final_time = clock();
+			cpu_time += (((double)(final_time - initial_time))/CLOCKS_PER_SEC);
+			cout << "gen tree last for " << cpu_time << " secondes" << endl;
 		
 			initial_time = clock();
-			HNonPlanBits(A);
+			HNonPlan(A);
 			final_time = clock();
 			cpu_time += (((double)(final_time - initial_time))/CLOCKS_PER_SEC);
 			
+			initial_time = clock();
+			HNonPlanIso(A);
+			final_time = clock();
+			cpu_time_Iso += (((double)(final_time - initial_time))/CLOCKS_PER_SEC);
 		}
 		cpu_time /= 10;
+		cpu_time_Iso /= 10;
 		cout << "temps moyen pour n = " << 2*n+1 << " : " << cpu_time << endl;
-		//fprintf(f, "%d %.6f\n", 2*n+1, cpu_time);
+		cout << "temps moyen pour iso n = " << 2*n+1 << " : " << cpu_time_Iso << endl;
+		
+		/*f = fopen("HNonPlan40000.time", "a");
+		fprintf(f, "%d %.6f\n", 2*n+1, cpu_time);
+		fclose(f);
+		
+		fiso = fopen("HNonPlanIso40000.time", "a");
+		fprintf(fiso, "%d %.6f\n", 2*n+1, cpu_time_Iso);
+		fclose(fiso);*/
+		
 	}
-	
-	//fclose(f);
+	return 0;
 }
 
+int main(){//main generation aleatoire uniforme (test avec l'arbre de taille 5)
+
+	int n = 2;
+	enum_vect B = count(n);
+	mpz_class r;
+	r = 0;
+	node * A = tree_gen(2*n+1, B, r);
+	mpz_class hook = HNonPlanIso(A);
+	cout << "l'arbre de taille " << 2*n+1 << " a " << hook << " etiquetages possibles" << endl;
+
+	int nb_distinct_gen = 0;
+
+	for(mpz_class i = 0; i < hook; i++){
+		treeIso *t = genAleaAvecNS(A);
+		//storeLabeledIso(2*n+1, t, i);
+	}
+
+	/*for(int round = 0; round < 10000; round++){
+		treeIso *t0 = genAleaAvecNS(A);
+		treeIso *t1 = genAleaAvecNS(A);
+		treeIso *t2 = genAleaAvecNS(A);
+		treeIso *t3 = genAleaAvecNS(A);
+
+		bool t0t1 = sameCanonique(t0,t1);
+		bool t0t2 = sameCanonique(t0,t2);
+		bool t0t3 = sameCanonique(t0,t3);
+
+		bool t1t2 = sameCanonique(t1,t2);
+		bool t1t3 = sameCanonique(t1,t3);
+
+		bool t2t3 = sameCanonique(t2,t3);
+
+		if(!t0t1 && !t0t2 && !t0t3)
+			nb_distinct_gen++;
+		else if(!t1t2 && !t1t3)
+			nb_distinct_gen++;
+		else if(!t2t3)
+			nb_distinct_gen++;
+		nb_distinct_gen++;
+	}		
+	cout << "nb_distinct_gen = " << nb_distinct_gen  << "/40000" << endl;
+
+	cout << nb_distinct_gen/40000.0*100.0 << "%" << endl;*/
+
+		
+	return 0;
+}
 
 enum_vect count(int n)
 {
@@ -382,9 +458,9 @@ void store(int n, node * A, mpz_class r)
 	fic.close();	
 }
 
-/////////////////////////////////////////////////
+/////////////////////BINAIRE/////////////////////////////
 
-//Version 1//
+////Version sans AHU////
 
 treeVals * tv_init(mpz_class taille, int nbNS, mpz_class PTST, treeVals *fg, treeVals *fd)
 {
@@ -449,80 +525,7 @@ bool equalsTreeVals(treeVals *fg, treeVals *fd){
 		}
 	}
 }
-////
-
-//Version 2 avec sequence de bits//
-
-treeValsBits * tv_initBits(mpz_class taille, int nbNS, mpz_class PTST, treeValsBits *fg, treeValsBits *fd)
-{
-	treeValsBits * tv;
-	tv = new treeValsBits;
-	tv->taille = taille;
-	tv->nbNS = nbNS;
-	tv->PTST = PTST;
-	tv->fg = fg;
-	tv->fd = fd;
-	if(taille == 1){
-		tv->bs.emplace_back(0);
-		tv->bs.emplace_back(1);
-	}else{
-		tv->bs.emplace_back(0);
-		tv->bs.insert(tv->bs.end(), tv->fg->bs.begin(), tv->fg->bs.end());
-		tv->bs.emplace_back(0);
-		tv->bs.insert(tv->bs.end(), tv->fd->bs.begin(), tv->fd->bs.end());
-		tv->bs.emplace_back(1);
-	}
-	return tv;
-}
-
-void freeTreeValsBits (treeValsBits *T){
-	if(T->fg !=NULL){
-		freeTreeValsBits(T->fg);
-		freeTreeValsBits(T->fd);
-	}
-	delete T;
-}
-
-mpz_class HNonPlanBits(node *tree){
-	treeValsBits *rootTV = HNonPlanBitsAux(tree);
-	mpz_class fact = factorial(rootTV->taille);
-	int powNS = (int) pow(2, rootTV->nbNS);
-	mpz_class powMPZ(powNS);
-	mpz_class PTST = rootTV->PTST;
-	freeTreeValsBits(rootTV);
-	return fact / PTST / powMPZ;
-}
-
-treeValsBits *HNonPlanBitsAux(node *tree){
-	if(isLeaf(tree)){
-		return tv_initBits(1, 0, 1, NULL, NULL);
-	}else{
-		treeValsBits *fg = HNonPlanBitsAux(tree->fg);
-		treeValsBits *fd = HNonPlanBitsAux(tree->fd);
-		int nbNS;
-		if(equalsTreeValsBits(fg, fd)){
-			nbNS = fg->nbNS + fd->nbNS + 1;
-		}else{
-			nbNS = fg->nbNS + fd->nbNS;
-		}
-		mpz_class taille = fg->taille + fd->taille + 1;
-		return tv_initBits(taille, nbNS, fg->PTST * fd->PTST * taille, fg, fd);
-	}
-}
-
-bool equalsTreeValsBits(treeValsBits *fg, treeValsBits *fd){
-	if(fg->taille != fd->taille){
-		return false;
-	}else{
-		if(fg->taille == 1){
-			return true;
-		}else{
-			return fg->bs == fd->bs;//on test seulement l'égalité entre les deux séquences de bits
-		}
-	}
-}
-
-////
+////////////////////////
 
 mpz_class factorial(mpz_class n)
 {
@@ -532,202 +535,289 @@ mpz_class factorial(mpz_class n)
     return res;
 }
 
-//iso
-/*
-isoVecs *init_isoVecs(){
-	isoVecs *v = new isoVecs;
-	v->maxLevel = 0;
-	return v;
+////Version avec AHU////
+
+isoMaps *init_isoMaps(){
+	isoMaps *m = new isoMaps;
+	m-> maxLevel = 1;
+	m->maps.reserve(1);
+	return m;
 }
 
-void resizeIsoVecs(isoVecs **ia, int levelmax){
-	int previousMax = ia->maxLevel;
-	if(previousMax == 0){
-		ia->vecs = (int ***)malloc(sizeof(int**)*levelmax);
-		ia->vecsSize = (int *)malloc(sizeof(int)*levelmax);
-		ia->maxNodeIsoValueByLevel = (int *)malloc(sizeof(int)*levelmax);
-		
-		int i;
-		for(i = 0; i <= levelmax; i++){
-			ia->vecsSize[i] = 0;
-			ia->maxNodeIsoValueByLevel[i] = 0;
-		}
-		ia->maxLevel = levelmax;
-		
-	}else if(previousMax < levelmax){
-		ia->vecs = (int ***)realloc(ia->vecs, sizeof(int **)*levelmax);
-		ia->vecsSize = (int *)realloc(ia->vecsSize, sizeof(int)*levelmax);
-		ia->maxNodeIsoValueByLevel = (int *)realloc(ia->maxNodeIsoValueByLevel, sizeof(int)*levelmax);
-		
-		int i;
-		for(i = previousMax+1; i <= levelmax; i++){
-			ia->vecsSize[i] = 0;
-			ia->maxNodeIsoValueByLevel[i] = 0;
-		}
-		ia->maxLevel = levelmax;
+void free_isoMaps(isoMaps *m){
+	if(m != NULL){
+		delete m;
 	}
 }
 
-treeIso *ti_init(mpz_class taille, int nbNS, mpz_class PTST, unsigned int level, treeIso *fg, treeIso *fd, treeIso *root){
+void resizeisoMaps(isoMaps **m , int levelmax){//appeler qd sur une feuille dans HNonPlanIsoAux
+	if(levelmax > ((*m)->maxLevel)){
+		(*m)->maps.resize(levelmax); 
+		(*m)->maxLevel = levelmax;
+	}
+}
+
+int getNodeValueFromMaps(isoMaps **m, int level, vector<int> v){
+	auto it = (*m)->maps[level].find(v);
+	if(it != (*m)->maps[level].end()){
+		return it->second;
+	}else{//si le vecteur n'est pas present alors on modifie m
+		int nextValue = (*m)->maps[level].size() +1;
+		(*m)->maps[level].insert(pair<vector<int>, int>(v, nextValue));
+		return nextValue;
+	}
+}
+
+treeIso *ti_init(mpz_class taille, int nbNS, mpz_class PTST, int level, treeIso *fg, treeIso *fd){//nodeValue et vector init dans HNonPlanIsoAux
 	treeIso * t;
 	t = new treeIso;
 	t->taille = taille;
 	t->nbNS = nbNS;
 	t->PTST = PTST;
-	t->root = root;
+	t->pere = NULL;
 	t->fg = fg;
 	t->fd = fd;
 	t->level = level;
+	t->label = -1;
 	return t;
 }
 
 void freeTreeIso(treeIso *T){
 	if(T->fg !=NULL){
-		freeTreeValsBits(T->fg);
-		freeTreeValsBits(T->fd);
+		freeTreeIso(T->fg);
+		freeTreeIso(T->fd);
 	}
 	delete T;
 }
 
+
 mpz_class HNonPlanIso(node *tree){
-	treeIso *rootTV = HNonPlanIsoAux(tree, NULL, 1);
+	isoMaps *m = init_isoMaps();
+	treeIso *rootTV = HNonPlanIsoAux(tree, &m, 1);
 	mpz_class fact = factorial(rootTV->taille);
 	int powNS = (int) pow(2, rootTV->nbNS);
 	mpz_class powMPZ(powNS);
 	mpz_class PTST = rootTV->PTST;
 	freeTreeIso(rootTV);
+	free_isoMaps(m);
 	return fact / PTST / powMPZ;
 }
 
-treeIso *HNonPlanIsoAux(node *tree, node *root, unsigned int level){
+treeIso *HNonPlanIsoAux(node *tree, isoMaps **m, int level){
 	if(isLeaf(tree)){
-		treeIso *leaf = ti_init(1, 0, 1, level, NULL, NULL, root);
+		treeIso *leaf = ti_init(1, 0, 1, level, NULL, NULL);
 		leaf->nodeIsoValue = 0;
+		resizeisoMaps(m, level);
 		return leaf;
 	}else{
-		treeIso *fg = HNonPlanIsoAux(tree->fg, tree, level+1);
-		treeIso *fd = HNonPlanIsoAux(tree->fd, tree, level+1);
+		treeIso *fg = HNonPlanIsoAux(tree->fg, m, level+1);
+		treeIso *fd = HNonPlanIsoAux(tree->fd, m, level+1);
 		mpz_class taille = fg->taille + fd->taille +1;
 		mpz_class PTST = fg->PTST * fd->PTST * taille;
-		//int isoV = getNodeIsoValue(isoVecs, fg->nodeIsoValue, fd->nodeIsoValue);
+		vector<int> v;
+		if(fg->nodeIsoValue > fd->nodeIsoValue){//v[0] <= v[1]
+			v.emplace_back(fd->nodeIsoValue);
+			v.emplace_back(fg->nodeIsoValue);
+		}else{
+			v.emplace_back(fg->nodeIsoValue);
+			v.emplace_back(fd->nodeIsoValue);
+		}
+		int nodeValue = getNodeValueFromMaps(m, level, v);
 		int nbNS;
 		if(equalsTreeIso(fg, fd)){
 			nbNS = fg->nbNS + fd->nbNS + 1;
 		}else{
 			nbNS = fg->nbNS + fd->nbNS;
 		}
-		//TODO
-		//treeIso n = ti_init(taille, nbNS, PTST, level, fg, fd, root);
-		//n->nodeIsoValue = isoV; 
+		treeIso *n = ti_init(taille, nbNS, PTST, level, fg, fd);
+		fg->pere = n;
+		fd->pere = n;
+		n->nodeIsoValue = nodeValue; 
+		return n;
 	}
 }
 
 bool equalsTreeIso(treeIso *fg, treeIso *fd){
 	return fg->nodeIsoValue == fd->nodeIsoValue;
 }
+///////////////////////////
 
-int getNodeIsoValue(isoVecs **iv, int level, int vfg, int vfd){
+// generation aleatoire uniforme d'un arbre canonique
 
-	
-	
-}
-*/
-///
-
-//generation aleatoire uniforme
-void sousCalcul(tree* t, tree** M, int weight, int* label){
-   if(t == NULL)
-	return;
-   // count number
+void sousCalculAvecNS(treeIso** t, treeIso*** M, int taille, int* label){
+   if((*t) == NULL) return;
    int count = 0;
-   for(int i=0; i< weight; i++)
+   for(int i=0; i< taille; i++)
 	if( M[i] != NULL)
-	  count++;
-   // random r
-   //RAND_MAX = (count-1);
-   int r = std::rand();
+	     count++;
+   // random r, seed millisecond
+   int r;
+   if(count > 0){
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+	std::srand((tv.tv_sec*1000)+(tv.tv_usec*1000));
+   	r = ((std::rand()) % count) ;
+   }else{
+	r = 0;
+   }
+
+
    // found the r-th tree* and put on his label the value of *label
    int nb=0;
-   tree* v;
-   for(int i=0; i< weight; i++){
+   treeIso** v;
+   for(int i=0; i< taille; i++){
 	if( M[i] != NULL){
-	 if(nb==r){
-	   v = M[i];
-	   break;
-	 }
-	 else{
-	  nb++;
-	 }
-	}
-}
-   v->label = *label;
-   *label++;
+	     if(nb==r){
+	          v = M[i];
+	          break;
+	     }
+	     else{
+	          nb++;
+	     }
+        }
+   }
+   (*v)->label = *label;
+   *label = (*label)+1;	
+
+   /*if((*v)->pere != NULL){
+	   treeIso ** pereV = &((*v)->pere);
+	   if((*pereV)->fg->label != -1 && (*pereV)->fd->label != -1){//les deux fils ont recu un label
+		//Si pere est un NS alors on echange les places de fg et fd de façon à ce que l'arbre ait un etiquetage canonique
+		if((*pereV)->nbNS != ((*pereV)->fg->nbNS + (*pereV)->fd->nbNS)){
+		     if((*pereV)->fg->label > (*pereV)->fd->label){//si le label du fg est superieur au label du fd
+			  treeIso *tmp = (*pereV)->fg;
+			  (*pereV)->fg = (*pereV)->fd;
+			  (*pereV)->fd = tmp;
+		     }
+		}
+		
+	   } 
+   }*/ //changer directement ici provoque des erreurs.
+
    // construct M and recursive call
     int firstPlaceOfV = -1;
     // supprimer v
-    for(int i=0; i < weight; i++)
-	if(M[i]==v){
-	  if(firstPlaceOfV == -1)
-	    firstPlaceOfV = i;
-	  M[i]==NULL;
-	}
-   // constuire M et appel recursive
-   if( t-> fg!= NULL & t-> fd!=NULL){
-	   for(int i=firstPlaceOfV; i < t->fg->weight; i++){
-	     M[i]=t->fg;
-		}
-	   for(int i = firstPlaceOfV+t->fg->weight; i < (firstPlaceOfV+t->fg->weight+t->fd->weight); i++){
-	     M[i]=t->fd;
-		}
+    for(int i=0; i < taille; i++){
+         if(M[i]==v){
+	      if(firstPlaceOfV == -1)
+	           firstPlaceOfV = i;
+	      M[i]=NULL;
+	 }
+    }
 
-	   // call
-	    sousCalcul(v->fg, M, weight, label);
-	    sousCalcul(v->fd, M, weight, label);
-}else if(t->fg!=NULL){
-	for(int i=firstPlaceOfV; i < t->fg->weight; i++){
-	     M[i]=t->fg;
-	}
-        sousCalcul(v->fg, M, weight, label);
-  }else{
-	for(int i = firstPlaceOfV; i < (firstPlaceOfV+t->fd->weight); i++){
-	     M[i]=t->fd;
-	}
-	sousCalcul(v->fd, M, weight, label);
-  }
+    if( (*v)-> fg!= NULL && (*v)-> fd!=NULL){//t est binaire strict
+	 int fg_pos_in_M = (*v)->fg->taille.get_si() + firstPlaceOfV;
+         for(int i=firstPlaceOfV; i < fg_pos_in_M; i++){
+	      M[i]=&((*v)->fg);
+         }
+	 int fd_pos_in_M = (*v)->fd->taille.get_si() + firstPlaceOfV + (*v)->fg->taille.get_si();
+	 for(int i = firstPlaceOfV + (*v)->fg->taille.get_si(); i < fd_pos_in_M; i++){
+	      M[i]=&((*v)->fd);
+         }
+	 // call
+	 sousCalculAvecNS(&((*v)->fg), M, taille, label);
+	 sousCalculAvecNS(&((*v)->fd), M, taille, label);
+    }
 }
 
 
-/* random labeling
- * t : struct containing fg, fd , weight and label undefined of each node
- */
-tree* randomLabeling(tree* t){ 
- if(t== NULL || t->weight < 1)
-  return t;
+//generation aleatoire uniforme
+//retourne un arbre binaire avec etiquetage canonique
+treeIso* genAleaAvecNS(node *tree){
+	if(tree == NULL) return NULL;
+	int *label = (int *)malloc(sizeof(int));
+	*label = 1;
+	isoMaps *m = init_isoMaps();
+	treeIso *rootTV = HNonPlanIsoAux(tree, &m, 1);
+	int taille = (rootTV->taille).get_si();
+	treeIso ***M = (treeIso***)malloc(sizeof(treeIso**)*taille);//attention la taille de l'arbre ne doit pas être trop grande
+	for(int i = 0; i < taille; i++)
+		M[i] = &rootTV;
 
- // init
- int* label = (int*) malloc(sizeof(int));
- *label = 1;
- tree** M = (tree**) malloc(sizeof(tree*)*t->weight);
- for(int i=0; i < t->weight; i++)
-  M[i] = t;
-  std::srand(std::time(nullptr));
- // recursive call
- sousCalcul(t, M, t->weight, label);
- free(M);
- free(label);
- return t;
+	sousCalculAvecNS(&rootTV, M, taille, label);
+
+	free_isoMaps(m);
+	free(M);
+	free(label);
+
+	mkCanonique(&rootTV);	
+	return rootTV;
+}
+
+void mkCanonique(treeIso ** t){
+	if((*t)->fg == NULL) return;
+	//Si t est un NS alors on echange les places de fg et fd de façon à ce que l'arbre ait un etiquetage canonique
+	if((*t)->nbNS != ((*t)->fg->nbNS + (*t)->fd->nbNS)){
+	     if((*t)->fg->label > (*t)->fd->label){//si le label du fg est superieur au label du fd
+		  treeIso *tmp = (*t)->fg;
+		  (*t)->fg = (*t)->fd;
+		  (*t)->fd = tmp;
+	     }
+	}
+   	mkCanonique(&((*t)->fg));
+	mkCanonique(&((*t)->fd));
+}
+
+bool sameCanonique(treeIso *t1, treeIso *t2){
+	if(t1->taille != t2->taille) return false;
+	if(t1->label != t2 -> label) return false;
+	
+	if(t1->taille == 1) return true;
+
+	return sameCanonique(t1->fg, t2->fg) && sameCanonique(t1->fd, t2->fd);
+
+}
+
+string dot_from_treeIso(clock_t a, treeIso * A)
+{
+	stringstream ss;
+	
+	if(A!=NULL)
+	{
+		
+		ss << a << "[label=" << A->label << ",shape=ellipse]\n";
+		
+		clock_t g,d;
+		g = clock();
+		if(A->fg !=NULL)
+		{
+			ss << g << "[label=\"\",shape=ellipse];\n";
+			ss << "  " << a << " -- " << g << ";\n";
+			ss << dot_from_treeIso(g, A->fg)<< "\n";
+		}
+		
+		if(A->fd !=NULL)
+		{
+			d = clock();
+			while(d==g)
+			{
+				d = clock();
+			}
+			ss << d << "[label=\"\",shape=ellipse];\n";
+			ss << "  " << a << " -- " << d << ";\n";
+			ss << dot_from_treeIso(d, A->fd) << "\n";
+		}
+		return ss.str();
+	}
+	return "";
+}
+
+void storeLabeledIso(int n, treeIso * A, mpz_class m)
+{
+	ofstream fic;
+	stringstream ss;
+	ss << "testLabeled/Bin_" << n << "_" << m << ".dot";
+	fic.open(ss.str(), ios::out);
+	
+	fic << "graph {\n";
+	fic << "node [shape=plaintext]\n";
+	clock_t c = clock();
+	fic << dot_from_treeIso(c, A);
+	fic << "}\n";
+	
+	fic.close();	
 }
 
 
-
-
-
-
-
-
-
-
-
-
-
+/////////////////////N-AIRE/////////////////////////////
 
